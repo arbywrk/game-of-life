@@ -20,12 +20,11 @@ const Coordinates = struct {
 };
 
 const CellState = enum {
-    ALIVE,
-    DEAD,
+    alive,
+    dead,
 };
 
 const Cell = struct {
-    coordinates: Coordinates,
     state: CellState,
 };
 
@@ -33,29 +32,48 @@ const Configuration = struct {
     alive: []Coordinates,
 };
 
+const universe_t: type = [100][100]Cell;
+
 const Generation = struct {
-    universe: @Vector(100, @Vector(1000, Cell)),
+    universe: universe_t,
 };
+
+fn display_universe(writer: *Io.Writer, universe: universe_t) !void {
+    for (universe) |row| {
+        for (row) |cell| {
+            if (cell.state == CellState.alive) {
+                try writer.print("X ", .{});
+            } else {
+                try writer.print("  ", .{});
+            }
+        }
+        try writer.print("\n", .{});
+    }
+}
 
 fn procede_to_next_generation(current_generation: Generation) Generation {
     _ = current_generation;
+    // Apply the rules to generate the next generation
 }
 
-fn game_of_life(initial_configuration: Configuration) void {
-    _ = initial_configuration;
-    // Create first generation out of the initial configuration
-    // Use `procede_to_next_generation` to advance the generations
-}
+fn game_of_life(writer: *Io.Writer, initial_configuration: Configuration) !void {
+    var first_generation: Generation = .{ .universe = @splat(@splat(.{ .state = CellState.dead })) };
 
-/// This is a documentation comment to explain the `printAnotherMessage` function below.
-///
-/// Accepting an `Io.Writer` instance is a handy way to write reusable code.
-pub fn printAnotherMessage(writer: *Io.Writer) Io.Writer.Error!void {
-    try writer.print("Run `zig build test` to run the tests.\n", .{});
+    for (initial_configuration.alive) |cell_coordinates| {
+        first_generation.universe[cell_coordinates.y][cell_coordinates.x].state = CellState.alive;
+    }
+
+    const current_generation = first_generation;
+    while (true) {
+        try display_universe(writer, current_generation.universe);
+        try writer.flush(); // Don't forget to flush!
+
+        // TODO: use `procede_to_next_generation` to advance the generations
+        break;
+    }
 }
 
 pub fn main(init: std.process.Init) !void {
-    _ = init;
     // Prints to stderr, unbuffered, ignoring potential errors.
     // std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
 
@@ -69,55 +87,68 @@ pub fn main(init: std.process.Init) !void {
     //}
 
     // In order to do I/O operations need an `Io` instance.
-    // const io = init.io;
+    const io = init.io;
 
     // Stdout is for the actual output of your application, for example if you
     // are implementing gzip, then only the compressed bytes should be sent to
     // stdout, not any debugging messages.
-    // var stdout_buffer: [1024]u8 = undefined;
-    // var stdout_file_writer: Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
-    // const stdout_writer = &stdout_file_writer.interface;
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_file_writer: Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
+    const stdout_writer = &stdout_file_writer.interface;
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = &arena.allocator();
+    const alive_coordinates_ptr = try allocator.create([4]Coordinates);
+    alive_coordinates_ptr.* = [4]Coordinates{
+        .{ .x = 1, .y = 1 },
+        .{ .x = 2, .y = 2 },
+        .{ .x = 1, .y = 0 },
+        .{ .x = 2, .y = 1 },
+    };
+
+    try game_of_life(stdout_writer, .{ .alive = alive_coordinates_ptr });
 
     // try printAnotherMessage(stdout_writer);
 
     // try stdout_writer.flush(); // Don't forget to flush!
 }
 
-test "simple test" {
-    const gpa = std.testing.allocator;
-    var list: std.ArrayList(i32) = .empty;
-    defer list.deinit(gpa); // Try commenting this out and see if zig detects the memory leak!
-    try list.append(gpa, 42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
-
-test "fuzz example" {
-    try std.testing.fuzz({}, testOne, .{});
-}
-
-fn testOne(context: void, smith: *std.testing.Smith) !void {
-    _ = context;
-    // Try command `zig build test --fuzz -Doptimize=ReleaseFast` to see if it manages to fail this test case!
-
-    const gpa = std.testing.allocator;
-    var list: std.ArrayList(u8) = .empty;
-    defer list.deinit(gpa);
-    while (!smith.eos()) switch (smith.value(enum { add_data, dup_data })) {
-        .add_data => {
-            const slice = try list.addManyAsSlice(gpa, smith.value(u4));
-            smith.bytes(slice);
-        },
-        .dup_data => {
-            if (list.items.len == 0) continue;
-            if (list.items.len > std.math.maxInt(u32)) return error.SkipZigTest;
-            const len = smith.valueRangeAtMost(u32, 1, @min(32, list.items.len));
-            const off = smith.valueRangeAtMost(u32, 0, @intCast(list.items.len - len));
-            try list.appendSlice(gpa, list.items[off..][0..len]);
-            try std.testing.expectEqualSlices(
-                u8,
-                list.items[off..][0..len],
-                list.items[list.items.len - len ..],
-            );
-        },
-    };
-}
+// test "simple test" {
+//     const gpa = std.testing.allocator;
+//     var list: std.ArrayList(i32) = .empty;
+//     defer list.deinit(gpa); // Try commenting this out and see if zig detects the memory leak!
+//     try list.append(gpa, 42);
+//     try std.testing.expectEqual(@as(i32, 42), list.pop());
+// }
+//
+// test "fuzz example" {
+//     try std.testing.fuzz({}, testOne, .{});
+// }
+//
+// fn testOne(context: void, smith: *std.testing.Smith) !void {
+//     _ = context;
+//     // Try command `zig build test --fuzz -Doptimize=ReleaseFast` to see if it manages to fail this test case!
+//
+//     const gpa = std.testing.allocator;
+//     var list: std.ArrayList(u8) = .empty;
+//     defer list.deinit(gpa);
+//     while (!smith.eos()) switch (smith.value(enum { add_data, dup_data })) {
+//         .add_data => {
+//             const slice = try list.addManyAsSlice(gpa, smith.value(u4));
+//             smith.bytes(slice);
+//         },
+//         .dup_data => {
+//             if (list.items.len == 0) continue;
+//             if (list.items.len > std.math.maxInt(u32)) return error.SkipZigTest;
+//             const len = smith.valueRangeAtMost(u32, 1, @min(32, list.items.len));
+//             const off = smith.valueRangeAtMost(u32, 0, @intCast(list.items.len - len));
+//             try list.appendSlice(gpa, list.items[off..][0..len]);
+//             try std.testing.expectEqualSlices(
+//                 u8,
+//                 list.items[off..][0..len],
+//                 list.items[list.items.len - len ..],
+//             );
+//         },
+//     };
+// }
