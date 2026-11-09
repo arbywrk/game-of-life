@@ -81,23 +81,33 @@ const Configuration = struct {
     alive: []Coordinates,
 };
 
-const universe_t: type = [10][10]Cell;
+const universe_t: type = [20][20]Cell;
 
 const Generation = struct {
     universe: universe_t,
 };
 
 fn display_universe(writer: *Io.Writer, universe: universe_t) !void {
+    try writer.print("-", .{});
     for (universe) |row| {
+        for (row) |_| {
+            try writer.print("--", .{});
+        }
+        try writer.print("\n", .{});
+        try writer.print("|", .{});
         for (row) |cell| {
             if (cell.state == CellState.alive) {
-                try writer.print("X ", .{});
+                try writer.print("X|", .{});
             } else {
-                try writer.print("  ", .{});
+                try writer.print(" |", .{});
             }
         }
         try writer.print("\n", .{});
     }
+    for (universe[0]) |_| {
+        try writer.print("--", .{});
+    }
+    try writer.print("-\n", .{});
 }
 
 fn create_next_generation(current_generation: Generation) Generation {
@@ -120,7 +130,7 @@ fn create_next_generation(current_generation: Generation) Generation {
     return next_generation;
 }
 
-fn game_of_life(writer: *Io.Writer, initial_configuration: Configuration) !void {
+fn game_of_life(writer: *Io.Writer, reader: *Io.Reader, initial_configuration: Configuration) !void {
     var first_generation: Generation = .{ .universe = @splat(@splat(.{ .state = CellState.dead })) };
 
     for (initial_configuration.alive) |cell_coordinates| {
@@ -128,10 +138,11 @@ fn game_of_life(writer: *Io.Writer, initial_configuration: Configuration) !void 
     }
 
     var current_generation = first_generation;
-    for (0..5) |_| {
-        //while (true) {
+    while (true) {
         try display_universe(writer, current_generation.universe);
         try writer.flush(); // Don't forget to flush!
+        var read_buffer: [1]u8 = undefined;
+        _ = try reader.readSliceShort(&read_buffer);
         current_generation = create_next_generation(current_generation);
     }
 }
@@ -159,18 +170,30 @@ pub fn main(init: std.process.Init) !void {
     var stdout_file_writer: Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
     const stdout_writer = &stdout_file_writer.interface;
 
+    var stdin_buffer: [1024]u8 = undefined;
+    var stdin_file_reader: Io.File.Reader = .init(.stdin(), io, &stdin_buffer);
+    const stdin_reader = &stdin_file_reader.interface;
+
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = &arena.allocator();
-    const alive_coordinates_ptr = try allocator.create([4]Coordinates);
-    alive_coordinates_ptr.* = [4]Coordinates{
-        .{ .x = 1, .y = 1 },
-        .{ .x = 2, .y = 2 },
-        .{ .x = 1, .y = 0 },
-        .{ .x = 2, .y = 1 },
+    const alive_coordinates_ptr = try allocator.create([12]Coordinates);
+    alive_coordinates_ptr.* = [_]Coordinates{
+        .{ .x = 6, .y = 9 },
+        .{ .x = 6, .y = 10 },
+        .{ .x = 6, .y = 11 },
+        .{ .x = 7, .y = 12 },
+        .{ .x = 8, .y = 13 },
+        .{ .x = 9, .y = 12 },
+        .{ .x = 10, .y = 11 },
+        .{ .x = 10, .y = 10 },
+        .{ .x = 10, .y = 9 },
+        .{ .x = 9, .y = 8 },
+        .{ .x = 8, .y = 7 },
+        .{ .x = 7, .y = 8 },
     };
 
-    try game_of_life(stdout_writer, .{ .alive = alive_coordinates_ptr });
+    try game_of_life(stdout_writer, stdin_reader, .{ .alive = alive_coordinates_ptr });
 
     // try printAnotherMessage(stdout_writer);
 
