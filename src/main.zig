@@ -81,7 +81,7 @@ const Configuration = struct {
     alive: []Coordinates,
 };
 
-const universe_t: type = [100][100]Cell;
+const universe_t: type = [10][10]Cell;
 
 const Generation = struct {
     universe: universe_t,
@@ -100,21 +100,24 @@ fn display_universe(writer: *Io.Writer, universe: universe_t) !void {
     }
 }
 
-fn procede_to_next_generation(current_generation: Generation) Generation {
+fn create_next_generation(current_generation: Generation) Generation {
+    var next_generation: Generation = .{ .universe = @splat(@splat(.{ .state = CellState.dead })) };
     for (current_generation.universe, 0..) |row, y| {
         for (row, 0..) |cell, x| {
             if (cell.state == CellState.alive and (is_underpopulated(.{ .x = x, .y = y }, current_generation) or is_overpopulated(.{ .x = x, .y = y }, current_generation))) {
-                std.debug.print("Will die: {} {}\n", .{ y, x });
+                next_generation.universe[y][x].state = CellState.dead;
+                // std.debug.print("Will die: {} {}\n", .{ y, x });
             } else if (cell.state == CellState.dead and can_reproduce(.{ .x = x, .y = y }, current_generation)) {
-                std.debug.print("Will be born: {} {}\n", .{ y, x });
+                next_generation.universe[y][x].state = CellState.alive;
+                //std.debug.print("Will be born: {} {}\n", .{ y, x });
             } else {
+                next_generation.universe[y][x].state = current_generation.universe[y][x].state;
                 // std.debug.print("Nothing will change: {} {}\n", .{ y, x });
             }
         }
     }
 
-    // temporary
-    return current_generation;
+    return next_generation;
 }
 
 fn game_of_life(writer: *Io.Writer, initial_configuration: Configuration) !void {
@@ -124,14 +127,12 @@ fn game_of_life(writer: *Io.Writer, initial_configuration: Configuration) !void 
         first_generation.universe[cell_coordinates.y][cell_coordinates.x].state = CellState.alive;
     }
 
-    const current_generation = first_generation;
-    while (true) {
+    var current_generation = first_generation;
+    for (0..5) |_| {
+        //while (true) {
         try display_universe(writer, current_generation.universe);
         try writer.flush(); // Don't forget to flush!
-        _ = procede_to_next_generation(current_generation);
-
-        // TODO: use `procede_to_next_generation` to advance the generations
-        break;
+        current_generation = create_next_generation(current_generation);
     }
 }
 
