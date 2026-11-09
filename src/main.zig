@@ -1,6 +1,46 @@
 const std = @import("std");
 const Io = std.Io;
 
+const Error = error{
+    OutOfBounds,
+};
+
+fn is_alive(c: Coordinates, generation: Generation) Error!bool {
+    if (c.y >= generation.universe.len or c.x >= generation.universe[0].len) {
+        return Error.OutOfBounds;
+    }
+    return generation.universe[c.y][c.x].state == CellState.alive;
+}
+
+fn number_of_neighbours(c: Coordinates, generation: Generation, default_args: struct { cache: bool = false }) u4 {
+    const LastChecked = struct {
+        var lc: Coordinates = undefined;
+        var lr: u4 = undefined;
+    };
+
+    if (default_args.cache and std.meta.eql(c, LastChecked.lc)) {
+        return LastChecked.lr;
+    }
+
+    const dy: [8]i8 = .{ -1, -1, 0, 1, 1, 1, 0, -1 };
+    const dx: [8]i8 = .{ 0, 1, 1, 1, 0, -1, -1, -1 };
+
+    var neighbours: u4 = 0;
+    for (0..8) |i| {
+        if (is_alive(.{
+            .x = std.math.cast(usize, @as(isize, @intCast(c.x)) + dx[i]) orelse continue,
+            .y = std.math.cast(usize, @as(isize, @intCast(c.y)) + dy[i]) orelse continue,
+        }, generation) catch continue) {
+            neighbours += 1;
+        }
+    }
+
+    LastChecked.lc = c;
+    LastChecked.lr = neighbours;
+
+    return neighbours;
+}
+
 // Create initial configuration
 // Observe how it evolves in each generation
 //
@@ -10,9 +50,18 @@ const Io = std.Io;
 // - Each cell interacts with all its 8 neighboars
 // - At each time (each generation) the following transitions occur:
 //      - Any live cell with fewer than two live neighbours dies, as if by underpopulation
+fn is_underpopulated(c: Coordinates, generation: Generation) bool {
+    return number_of_neighbours(c, generation, .{ .cache = true }) < 2;
+}
 //      - Any live cell with two or three live neighbours lives on to the next generation
 //      - Any live cell with more than three live neighbours dies, as if by overpopulation
+fn is_overpopulated(c: Coordinates, generation: Generation) bool {
+    return number_of_neighbours(c, generation, .{ .cache = true }) > 3;
+}
 //      - Any dead cell with exactly three live neighbours becomes a live cell, as if by reproduction
+fn can_reproduce(c: Coordinates, generation: Generation) bool {
+    return number_of_neighbours(c, generation, .{ .cache = true }) == 3;
+}
 
 const Coordinates = struct {
     x: usize,
@@ -52,8 +101,20 @@ fn display_universe(writer: *Io.Writer, universe: universe_t) !void {
 }
 
 fn procede_to_next_generation(current_generation: Generation) Generation {
-    _ = current_generation;
-    // Apply the rules to generate the next generation
+    for (current_generation.universe, 0..) |row, y| {
+        for (row, 0..) |cell, x| {
+            if (cell.state == CellState.alive and (is_underpopulated(.{ .x = x, .y = y }, current_generation) or is_overpopulated(.{ .x = x, .y = y }, current_generation))) {
+                std.debug.print("Will die: {} {}\n", .{ y, x });
+            } else if (cell.state == CellState.dead and can_reproduce(.{ .x = x, .y = y }, current_generation)) {
+                std.debug.print("Will be born: {} {}\n", .{ y, x });
+            } else {
+                // std.debug.print("Nothing will change: {} {}\n", .{ y, x });
+            }
+        }
+    }
+
+    // temporary
+    return current_generation;
 }
 
 fn game_of_life(writer: *Io.Writer, initial_configuration: Configuration) !void {
@@ -67,6 +128,7 @@ fn game_of_life(writer: *Io.Writer, initial_configuration: Configuration) !void 
     while (true) {
         try display_universe(writer, current_generation.universe);
         try writer.flush(); // Don't forget to flush!
+        _ = procede_to_next_generation(current_generation);
 
         // TODO: use `procede_to_next_generation` to advance the generations
         break;
@@ -113,42 +175,3 @@ pub fn main(init: std.process.Init) !void {
 
     // try stdout_writer.flush(); // Don't forget to flush!
 }
-
-// test "simple test" {
-//     const gpa = std.testing.allocator;
-//     var list: std.ArrayList(i32) = .empty;
-//     defer list.deinit(gpa); // Try commenting this out and see if zig detects the memory leak!
-//     try list.append(gpa, 42);
-//     try std.testing.expectEqual(@as(i32, 42), list.pop());
-// }
-//
-// test "fuzz example" {
-//     try std.testing.fuzz({}, testOne, .{});
-// }
-//
-// fn testOne(context: void, smith: *std.testing.Smith) !void {
-//     _ = context;
-//     // Try command `zig build test --fuzz -Doptimize=ReleaseFast` to see if it manages to fail this test case!
-//
-//     const gpa = std.testing.allocator;
-//     var list: std.ArrayList(u8) = .empty;
-//     defer list.deinit(gpa);
-//     while (!smith.eos()) switch (smith.value(enum { add_data, dup_data })) {
-//         .add_data => {
-//             const slice = try list.addManyAsSlice(gpa, smith.value(u4));
-//             smith.bytes(slice);
-//         },
-//         .dup_data => {
-//             if (list.items.len == 0) continue;
-//             if (list.items.len > std.math.maxInt(u32)) return error.SkipZigTest;
-//             const len = smith.valueRangeAtMost(u32, 1, @min(32, list.items.len));
-//             const off = smith.valueRangeAtMost(u32, 0, @intCast(list.items.len - len));
-//             try list.appendSlice(gpa, list.items[off..][0..len]);
-//             try std.testing.expectEqualSlices(
-//                 u8,
-//                 list.items[off..][0..len],
-//                 list.items[list.items.len - len ..],
-//             );
-//         },
-//     };
-// }
